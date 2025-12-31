@@ -532,6 +532,20 @@
                 <span>CCW</span>
             </div>
         </div>
+        <div class="slider-group">
+            <div class="slider-label">
+                <span>MAIN THRUST</span>
+                <span class="slider-value"><span id="main-thrust-value">2000</span>N</span>
+            </div>
+            <input type="range" id="main-thrust-slider" min="500" max="4000" value="2000" step="100">
+        </div>
+        <div class="slider-group">
+            <div class="slider-label">
+                <span>RCS THRUST</span>
+                <span class="slider-value"><span id="rcs-thrust-value">100</span>N</span>
+            </div>
+            <input type="range" id="rcs-thrust-slider" min="20" max="300" value="100" step="10">
+        </div>
         <div id="thruster-diagram">
             <div class="diagram-label" style="top: 2px; left: 50%; transform: translateX(-50%);">FWD</div>
             <div class="diagram-vehicle"></div>
@@ -582,17 +596,21 @@
             footRadius: 0.04,
             
             mainEngine: {
-                maxThrust: 2000,
+                maxThrust: 2000,    // Configurable
                 minThrust: 400,
                 isp: 220,
                 mixtureRatio: 6
             },
             
             rcsEngine: {
-                thrust: 100,
+                thrust: 100,        // Configurable
                 isp: 160
             }
         };
+        
+        // Live configurable thrust values
+        let mainEngineMaxThrust = VEHICLE.mainEngine.maxThrust;
+        let rcsThrust = VEHICLE.rcsEngine.thrust;
         
         const PHYSICS = {
             gravity: 9.81,
@@ -633,6 +651,14 @@
             cantAngle: 0,
             azimuthAngle: 0,
             
+            // RCS pulse timing (0.1s minimum on-time)
+            rcsPulseTimers: {
+                fl: 0, fr: 0, rl: 0, rr: 0
+            },
+            rcsCommanded: {
+                fl: false, fr: false, rl: false, rr: false
+            },
+            
             sasEnabled: false,
             
             onGround: true,
@@ -640,6 +666,7 @@
         };
         
         let keys = {};
+        let cameraDistance = 10; // For zoom control
         
         // ============================================
         // THREE.JS SETUP
@@ -1004,30 +1031,30 @@
             
             // Pitch control: positive error = pitched up = fire rear to pitch down
             if (pitchCommand > threshold) {
-                state.rcsState.rl = true;
-                state.rcsState.rr = true;
+                state.rcsCommanded.rl = true;
+                state.rcsCommanded.rr = true;
             } else if (pitchCommand < -threshold) {
-                state.rcsState.fl = true;
-                state.rcsState.fr = true;
+                state.rcsCommanded.fl = true;
+                state.rcsCommanded.fr = true;
             }
             
             // Roll control: positive error = rolled right = fire left side to roll left
             if (rollCommand > threshold) {
-                state.rcsState.fl = true;
-                state.rcsState.rl = true;
+                state.rcsCommanded.fl = true;
+                state.rcsCommanded.rl = true;
             } else if (rollCommand < -threshold) {
-                state.rcsState.fr = true;
-                state.rcsState.rr = true;
+                state.rcsCommanded.fr = true;
+                state.rcsCommanded.rr = true;
             }
             
             // Yaw control (diagonal pairs) - only effective with cant angle
             if (Math.abs(state.cantAngle) > 0) {
                 if (yawCommand > threshold) {
-                    state.rcsState.fr = true;
-                    state.rcsState.rl = true;
+                    state.rcsCommanded.fr = true;
+                    state.rcsCommanded.rl = true;
                 } else if (yawCommand < -threshold) {
-                    state.rcsState.fl = true;
-                    state.rcsState.rr = true;
+                    state.rcsCommanded.fl = true;
+                    state.rcsCommanded.rr = true;
                 }
             }
         }
@@ -1046,8 +1073,8 @@
             
             // Main engine
             if (state.throttle > 0 && state.fuel > 0 && state.oxidizer > 0) {
-                const thrust = VEHICLE.mainEngine.minThrust + 
-                    (VEHICLE.mainEngine.maxThrust - VEHICLE.mainEngine.minThrust) * state.throttle;
+                const minThrust = VEHICLE.mainEngine.minThrust;
+                const thrust = minThrust + (mainEngineMaxThrust - minThrust) * state.throttle;
                 
                 const thrustBody = new THREE.Vector3(0, thrust, 0);
                 const thrustWorld = thrustBody.clone().applyQuaternion(state.quaternion);
@@ -1071,9 +1098,9 @@
             ];
             
             rcsCorners.forEach((corner, i) => {
-                if (state.rcsState[corner] && state.fuel > 0) {
+                if (state.rcsState[corner] && state.oxidizer > 0) {
                     const thrustDir = getRCSThrustVector(i);
-                    const thrustMag = VEHICLE.rcsEngine.thrust;
+                    const thrustMag = rcsThrust;
                     
                     const thrustBody = thrustDir.clone().multiplyScalar(thrustMag);
                     const thrustWorld = thrustBody.clone().applyQuaternion(state.quaternion);
@@ -1082,8 +1109,9 @@
                     const torque = rcsPositionsPhysics[i].clone().cross(thrustBody);
                     totalTorque.add(torque);
                     
+                    // RCS uses oxidizer (monopropellant)
                     const massFlow = thrustMag / (VEHICLE.rcsEngine.isp * PHYSICS.g0);
-                    state.fuel = Math.max(0, state.fuel - massFlow * dt);
+                    state.oxidizer = Math.max(0, state.oxidizer - massFlow * dt);
                 }
             });
             
@@ -1137,6 +1165,26 @@
         // ============================================
         // CONTROLS
         // ============================================
+        const RCS_PULSE_DURATION = 0.1; // 0.1 second minimum pulse
+        
+        function updateRCSPulseTimers(dt) {
+            const corners = ['fl', 'fr', 'rl', 'rr'];
+            corners.forEach(corner => {
+                // If commanded, start/reset timer
+                if (state.rcsCommanded[corner]) {
+                    state.rcsPulseTimers[corner] = RCS_PULSE_DURATION;
+                }
+                
+                // RCS is active if timer > 0
+                state.rcsState[corner] = state.rcsPulseTimers[corner] > 0;
+                
+                // Decrement timer
+                if (state.rcsPulseTimers[corner] > 0) {
+                    state.rcsPulseTimers[corner] = Math.max(0, state.rcsPulseTimers[corner] - dt);
+                }
+            });
+        }
+        
         function updateControls(dt) {
             if (state.crashed) return;
             
@@ -1148,49 +1196,53 @@
                 state.throttle = Math.max(0, state.throttle - throttleRate * dt);
             }
             
-            state.rcsState = { fl: false, fr: false, rl: false, rr: false };
+            // Reset commanded state (not rcsState - that's handled by pulse timers)
+            state.rcsCommanded = { fl: false, fr: false, rl: false, rr: false };
             
             let manualControl = false;
             
             // Pitch: W = nose down, S = nose up
             if (keys['KeyW']) {
-                state.rcsState.rl = true;
-                state.rcsState.rr = true;
+                state.rcsCommanded.rl = true;
+                state.rcsCommanded.rr = true;
                 manualControl = true;
             }
             if (keys['KeyS']) {
-                state.rcsState.fl = true;
-                state.rcsState.fr = true;
+                state.rcsCommanded.fl = true;
+                state.rcsCommanded.fr = true;
                 manualControl = true;
             }
             
             // Roll: A = roll left (fire right side), D = roll right (fire left side)
             if (keys['KeyA']) {
-                state.rcsState.fr = true;
-                state.rcsState.rr = true;
+                state.rcsCommanded.fr = true;
+                state.rcsCommanded.rr = true;
                 manualControl = true;
             }
             if (keys['KeyD']) {
-                state.rcsState.fl = true;
-                state.rcsState.rl = true;
+                state.rcsCommanded.fl = true;
+                state.rcsCommanded.rl = true;
                 manualControl = true;
             }
             
             // Yaw: Q = yaw left, E = yaw right (diagonal pairs for torque)
             if (keys['KeyQ']) {
-                state.rcsState.fr = true;
-                state.rcsState.rl = true;
+                state.rcsCommanded.fr = true;
+                state.rcsCommanded.rl = true;
                 manualControl = true;
             }
             if (keys['KeyE']) {
-                state.rcsState.fl = true;
-                state.rcsState.rr = true;
+                state.rcsCommanded.fl = true;
+                state.rcsCommanded.rr = true;
                 manualControl = true;
             }
             
             if (state.sasEnabled && !manualControl) {
                 updateSAS(dt);
             }
+            
+            // Update pulse timers to set actual rcsState
+            updateRCSPulseTimers(dt);
         }
         
         // ============================================
@@ -1211,7 +1263,7 @@
             }
             
             ['fl', 'fr', 'rl', 'rr'].forEach((corner, i) => {
-                rcsFlames[corner].visible = state.rcsState[corner] && state.fuel > 0;
+                rcsFlames[corner].visible = state.rcsState[corner] && state.oxidizer > 0;
                 if (rcsFlames[corner].visible) {
                     rcsFlames[corner].material.opacity = 0.5 + Math.random() * 0.3;
                     
@@ -1339,6 +1391,8 @@
                 oxidizer: initialOxidizer,
                 throttle: 0,
                 rcsState: { fl: false, fr: false, rl: false, rr: false },
+                rcsCommanded: { fl: false, fr: false, rl: false, rr: false },
+                rcsPulseTimers: { fl: 0, fr: 0, rl: 0, rr: 0 },
                 cantAngle: parseFloat(document.getElementById('cant-slider').value),
                 azimuthAngle: parseFloat(document.getElementById('azimuth-slider').value),
                 sasEnabled: false,
@@ -1383,6 +1437,23 @@
             updateThrusterDiagram();
         });
         
+        document.getElementById('main-thrust-slider').addEventListener('input', (e) => {
+            mainEngineMaxThrust = parseFloat(e.target.value);
+            document.getElementById('main-thrust-value').textContent = e.target.value;
+        });
+        
+        document.getElementById('rcs-thrust-slider').addEventListener('input', (e) => {
+            rcsThrust = parseFloat(e.target.value);
+            document.getElementById('rcs-thrust-value').textContent = e.target.value;
+        });
+        
+        // Mouse wheel zoom
+        document.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            cameraDistance += e.deltaY * 0.01;
+            cameraDistance = Math.max(3, Math.min(50, cameraDistance));
+        }, { passive: false });
+        
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
@@ -1406,13 +1477,14 @@
             updateVisuals();
             updateHUD();
             
+            const camOffset = new THREE.Vector3(1, 0.5, 1).normalize().multiplyScalar(cameraDistance);
             const targetCamPos = new THREE.Vector3(
-                state.position.x + 8,
-                Math.max(4, state.position.y + 3),
-                state.position.z + 8
+                state.position.x + camOffset.x,
+                Math.max(2, state.position.y + camOffset.y * cameraDistance * 0.3),
+                state.position.z + camOffset.z
             );
             camera.position.lerp(targetCamPos, 0.02);
-            camera.lookAt(state.position.x, state.position.y + 1, state.position.z);
+            camera.lookAt(state.position.x, state.position.y + 0.5, state.position.z);
             
             renderer.render(scene, camera);
         }
