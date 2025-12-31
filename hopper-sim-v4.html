@@ -1,0 +1,1425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hopper Vehicle Simulator</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Orbitron:wght@400;700;900&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'JetBrains Mono', monospace;
+            background: #0a0a0f;
+            color: #e0e0e0;
+            overflow: hidden;
+            height: 100vh;
+        }
+        
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        
+        .hud {
+            position: absolute;
+            pointer-events: none;
+        }
+        
+        .hud-panel {
+            background: linear-gradient(135deg, rgba(10, 15, 25, 0.92) 0%, rgba(15, 20, 35, 0.88) 100%);
+            border: 1px solid rgba(80, 200, 255, 0.3);
+            border-radius: 4px;
+            padding: 12px 16px;
+            backdrop-filter: blur(10px);
+            box-shadow: 
+                0 0 20px rgba(0, 150, 255, 0.1),
+                inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        }
+        
+        .hud-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 10px;
+            font-weight: 700;
+            color: #50c8ff;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid rgba(80, 200, 255, 0.2);
+        }
+        
+        #flight-data {
+            top: 20px;
+            left: 20px;
+        }
+        
+        .data-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin: 4px 0;
+            gap: 20px;
+        }
+        
+        .data-label {
+            font-size: 10px;
+            color: #7a8a9a;
+            letter-spacing: 1px;
+        }
+        
+        .data-value {
+            font-size: 14px;
+            font-weight: 600;
+            color: #fff;
+            font-variant-numeric: tabular-nums;
+        }
+        
+        .data-unit {
+            font-size: 10px;
+            color: #5a6a7a;
+            margin-left: 2px;
+        }
+        
+        .value-positive { color: #50ff90; }
+        .value-negative { color: #ff6050; }
+        .value-warning { color: #ffaa30; }
+        
+        #attitude-panel {
+            top: 20px;
+            right: 20px;
+        }
+        
+        #attitude-indicator {
+            width: 140px;
+            height: 140px;
+            position: relative;
+            margin: 0 auto;
+        }
+        
+        .attitude-ring {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            border: 2px solid rgba(80, 200, 255, 0.4);
+            border-radius: 50%;
+        }
+        
+        .attitude-ring.outer { width: 130px; height: 130px; }
+        .attitude-ring.inner { width: 90px; height: 90px; border-style: dashed; }
+        
+        #attitude-aircraft {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 60px;
+            height: 60px;
+            transform: translate(-50%, -50%);
+            transition: transform 0.05s linear;
+        }
+        
+        .attitude-horizon {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 120px;
+            height: 1px;
+            background: rgba(80, 200, 255, 0.5);
+            transform: translate(-50%, -50%);
+        }
+        
+        #engine-panel {
+            bottom: 20px;
+            left: 20px;
+        }
+        
+        .throttle-bar-container {
+            width: 200px;
+            height: 24px;
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(80, 200, 255, 0.3);
+            border-radius: 3px;
+            overflow: hidden;
+            position: relative;
+            margin: 8px 0;
+        }
+        
+        #throttle-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #30a0ff 0%, #50c8ff 50%, #ff8040 100%);
+            transition: width 0.1s ease;
+            position: relative;
+        }
+        
+        #throttle-bar::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(180deg, rgba(255,255,255,0.2) 0%, transparent 50%);
+        }
+        
+        .throttle-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 11px;
+            font-weight: 600;
+            color: #fff;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+            z-index: 1;
+        }
+        
+        .fuel-bar-container {
+            width: 200px;
+            height: 16px;
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(80, 200, 255, 0.3);
+            border-radius: 3px;
+            overflow: hidden;
+            position: relative;
+            margin: 8px 0;
+        }
+        
+        #fuel-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #ff4040, #ffaa30 30%, #50ff90 60%);
+            transition: width 0.3s ease;
+        }
+        
+        #rcs-panel {
+            bottom: 20px;
+            right: 20px;
+            pointer-events: auto;
+        }
+        
+        .slider-group {
+            margin: 10px 0;
+        }
+        
+        .slider-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            color: #7a8a9a;
+            margin-bottom: 4px;
+        }
+        
+        .slider-value {
+            color: #50c8ff;
+            font-weight: 600;
+        }
+        
+        input[type="range"] {
+            width: 180px;
+            height: 6px;
+            -webkit-appearance: none;
+            background: rgba(80, 200, 255, 0.2);
+            border-radius: 3px;
+            outline: none;
+        }
+        
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #50c8ff;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(80, 200, 255, 0.5);
+        }
+        
+        input[type="range"]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            background: #50c8ff;
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+        }
+        
+        .rcs-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 4px;
+            width: 80px;
+            margin: 10px auto;
+        }
+        
+        .rcs-cell {
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .rcs-thruster {
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(80, 200, 255, 0.4);
+            border-radius: 2px;
+            transition: all 0.05s;
+        }
+        
+        .rcs-thruster.firing {
+            background: #50ff90;
+            border-color: #50ff90;
+            box-shadow: 0 0 10px #50ff90;
+        }
+        
+        .rcs-main {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 150, 50, 0.4);
+        }
+        
+        .rcs-main.firing {
+            background: #ff8040;
+            border-color: #ff8040;
+            box-shadow: 0 0 15px #ff8040;
+        }
+        
+        #controls-help {
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 10px;
+            opacity: 0.7;
+        }
+        
+        .controls-row {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+        
+        .control-key {
+            display: inline-block;
+            background: rgba(80, 200, 255, 0.2);
+            border: 1px solid rgba(80, 200, 255, 0.4);
+            border-radius: 3px;
+            padding: 2px 6px;
+            margin-right: 4px;
+            font-weight: 600;
+            min-width: 24px;
+            text-align: center;
+        }
+        
+        .control-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            white-space: nowrap;
+        }
+        
+        #status-message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-family: 'Orbitron', sans-serif;
+            font-size: 24px;
+            font-weight: 700;
+            color: #ff6050;
+            text-shadow: 0 0 20px rgba(255, 96, 80, 0.5);
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+        
+        #status-message.visible {
+            opacity: 1;
+        }
+        
+        #status-message.info {
+            color: #50c8ff;
+            text-shadow: 0 0 20px rgba(80, 200, 255, 0.5);
+        }
+        
+        #thruster-diagram {
+            width: 120px;
+            height: 120px;
+            position: relative;
+            margin: 10px auto;
+            border: 1px solid rgba(80, 200, 255, 0.2);
+            border-radius: 4px;
+            background: rgba(0,0,0,0.2);
+        }
+        
+        .diagram-label {
+            position: absolute;
+            font-size: 8px;
+            color: #5a6a7a;
+        }
+        
+        .diagram-vehicle {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 50px;
+            height: 50px;
+            border: 2px solid rgba(80, 200, 255, 0.3);
+            border-radius: 4px;
+        }
+        
+        .thruster-dot {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            background: #50c8ff;
+            border-radius: 50%;
+        }
+        
+        .thruster-arrow {
+            position: absolute;
+            width: 2px;
+            background: #50c8ff;
+            transform-origin: center top;
+        }
+        
+        .thruster-arrow::after {
+            content: '';
+            position: absolute;
+            bottom: -5px;
+            left: -3px;
+            border-left: 4px solid transparent;
+            border-right: 4px solid transparent;
+            border-top: 6px solid #50c8ff;
+        }
+        
+        .sas-indicator {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 8px;
+            padding: 6px;
+            border: 1px solid rgba(80, 200, 255, 0.2);
+            border-radius: 3px;
+        }
+        
+        .sas-status {
+            font-size: 11px;
+            font-weight: 600;
+        }
+        
+        .sas-status.active {
+            color: #50ff90;
+        }
+        
+        .sas-status.inactive {
+            color: #5a6a7a;
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container"></div>
+    
+    <div id="flight-data" class="hud hud-panel">
+        <div class="hud-title">Flight Data</div>
+        <div class="data-row">
+            <span class="data-label">ALT</span>
+            <span><span id="altitude" class="data-value">0.00</span><span class="data-unit">m</span></span>
+        </div>
+        <div class="data-row">
+            <span class="data-label">V/S</span>
+            <span><span id="vertical-speed" class="data-value">0.00</span><span class="data-unit">m/s</span></span>
+        </div>
+        <div class="data-row">
+            <span class="data-label">H/S</span>
+            <span><span id="horizontal-speed" class="data-value">0.00</span><span class="data-unit">m/s</span></span>
+        </div>
+        <div class="data-row">
+            <span class="data-label">MASS</span>
+            <span><span id="mass" class="data-value">0.00</span><span class="data-unit">kg</span></span>
+        </div>
+    </div>
+    
+    <div id="attitude-panel" class="hud hud-panel">
+        <div class="hud-title">Attitude</div>
+        <div id="attitude-indicator">
+            <div class="attitude-ring outer"></div>
+            <div class="attitude-ring inner"></div>
+            <div class="attitude-horizon"></div>
+            <svg id="attitude-aircraft" viewBox="-30 -30 60 60">
+                <line x1="-25" y1="0" x2="-8" y2="0" stroke="#50c8ff" stroke-width="3" stroke-linecap="round"/>
+                <line x1="8" y1="0" x2="25" y2="0" stroke="#50c8ff" stroke-width="3" stroke-linecap="round"/>
+                <line x1="0" y1="-20" x2="0" y2="8" stroke="#50c8ff" stroke-width="3" stroke-linecap="round"/>
+                <circle cx="0" cy="0" r="4" fill="#50c8ff"/>
+            </svg>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 10px;">
+            <div><span class="data-label">PITCH</span> <span id="pitch-value" class="data-value">0°</span></div>
+            <div><span class="data-label">ROLL</span> <span id="roll-value" class="data-value">0°</span></div>
+        </div>
+        <div style="text-align: center; margin-top: 4px; font-size: 10px;">
+            <span class="data-label">YAW</span> <span id="yaw-value" class="data-value">0°</span>
+        </div>
+        <div class="sas-indicator">
+            <span class="data-label">SAS</span>
+            <span id="sas-status" class="sas-status inactive">OFF</span>
+        </div>
+    </div>
+    
+    <div id="engine-panel" class="hud hud-panel">
+        <div class="hud-title">Propulsion</div>
+        <div class="data-label">MAIN THROTTLE</div>
+        <div class="throttle-bar-container">
+            <div id="throttle-bar" style="width: 0%"></div>
+            <span class="throttle-text"><span id="throttle-percent">0</span>%</span>
+        </div>
+        <div class="data-label">PROPELLANT</div>
+        <div class="fuel-bar-container">
+            <div id="fuel-bar" style="width: 100%"></div>
+        </div>
+        <div class="data-row">
+            <span class="data-label">FUEL</span>
+            <span><span id="fuel-mass" class="data-value">0.00</span><span class="data-unit">kg</span></span>
+        </div>
+        <div class="data-row">
+            <span class="data-label">OX</span>
+            <span><span id="ox-mass" class="data-value">0.00</span><span class="data-unit">kg</span></span>
+        </div>
+        <div class="rcs-grid">
+            <div class="rcs-cell"><div id="rcs-fl" class="rcs-thruster"></div></div>
+            <div class="rcs-cell"></div>
+            <div class="rcs-cell"><div id="rcs-fr" class="rcs-thruster"></div></div>
+            <div class="rcs-cell"></div>
+            <div class="rcs-cell"><div id="main-indicator" class="rcs-main"></div></div>
+            <div class="rcs-cell"></div>
+            <div class="rcs-cell"><div id="rcs-rl" class="rcs-thruster"></div></div>
+            <div class="rcs-cell"></div>
+            <div class="rcs-cell"><div id="rcs-rr" class="rcs-thruster"></div></div>
+        </div>
+    </div>
+    
+    <div id="rcs-panel" class="hud hud-panel">
+        <div class="hud-title">RCS Configuration</div>
+        <div class="slider-group">
+            <div class="slider-label">
+                <span>CANT ANGLE</span>
+                <span class="slider-value"><span id="cant-value">0</span>°</span>
+            </div>
+            <input type="range" id="cant-slider" min="-45" max="45" value="0" step="1">
+            <div style="display: flex; justify-content: space-between; font-size: 8px; color: #5a6a7a; margin-top: 2px;">
+                <span>INWARD</span>
+                <span>OUTWARD</span>
+            </div>
+        </div>
+        <div class="slider-group">
+            <div class="slider-label">
+                <span>ROTATION</span>
+                <span class="slider-value"><span id="azimuth-value">0</span>°</span>
+            </div>
+            <input type="range" id="azimuth-slider" min="-90" max="90" value="0" step="1">
+            <div style="display: flex; justify-content: space-between; font-size: 8px; color: #5a6a7a; margin-top: 2px;">
+                <span>CW</span>
+                <span>CCW</span>
+            </div>
+        </div>
+        <div id="thruster-diagram">
+            <div class="diagram-label" style="top: 2px; left: 50%; transform: translateX(-50%);">FWD</div>
+            <div class="diagram-vehicle"></div>
+            <div class="thruster-dot" id="dot-fl" style="left: 22px; top: 22px;"></div>
+            <div class="thruster-dot" id="dot-fr" style="right: 22px; top: 22px;"></div>
+            <div class="thruster-dot" id="dot-rl" style="left: 22px; bottom: 22px;"></div>
+            <div class="thruster-dot" id="dot-rr" style="right: 22px; bottom: 22px;"></div>
+            <div class="thruster-arrow" id="arrow-fl" style="left: 25px; top: 30px; height: 15px;"></div>
+            <div class="thruster-arrow" id="arrow-fr" style="right: 23px; top: 30px; height: 15px;"></div>
+            <div class="thruster-arrow" id="arrow-rl" style="left: 25px; bottom: 37px; height: 15px;"></div>
+            <div class="thruster-arrow" id="arrow-rr" style="right: 23px; bottom: 37px; height: 15px;"></div>
+        </div>
+        <div style="font-size: 9px; color: #5a6a7a; text-align: center;">
+            Top-down view: arrows show horizontal thrust
+        </div>
+    </div>
+    
+    <div id="controls-help" class="hud hud-panel">
+        <div class="controls-row">
+            <div class="control-item"><span class="control-key">SHIFT</span>/<span class="control-key">CTRL</span> Throttle</div>
+            <div class="control-item"><span class="control-key">W</span><span class="control-key">S</span> Pitch</div>
+            <div class="control-item"><span class="control-key">A</span><span class="control-key">D</span> Roll</div>
+            <div class="control-item"><span class="control-key">Q</span><span class="control-key">E</span> Yaw</div>
+            <div class="control-item"><span class="control-key">T</span> SAS</div>
+            <div class="control-item"><span class="control-key">R</span> Reset</div>
+        </div>
+    </div>
+    
+    <div id="status-message"></div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // ============================================
+        // VEHICLE CONSTANTS
+        // ============================================
+        const VEHICLE = {
+            width: 1.0,
+            length: 1.0,
+            height: 0.6,
+            dryMass: 80,
+            
+            tankDiameter: 0.5,
+            tankRadius: 0.25,
+            plateThickness: 0.05,
+            
+            legLength: 0.3,
+            legSpread: 0.15,
+            footRadius: 0.04,
+            
+            mainEngine: {
+                maxThrust: 2000,
+                minThrust: 400,
+                isp: 220,
+                mixtureRatio: 6
+            },
+            
+            rcsEngine: {
+                thrust: 100,
+                isp: 160
+            }
+        };
+        
+        const PHYSICS = {
+            gravity: 9.81,
+            g0: 9.80665,
+            timeScale: 1.0
+        };
+        
+        // Calculate propellant
+        const mainMassFlow = VEHICLE.mainEngine.maxThrust / (VEHICLE.mainEngine.isp * PHYSICS.g0);
+        const totalBurnTime = 90;
+        const totalPropellant = mainMassFlow * totalBurnTime;
+        const fuelFraction = 1 / (1 + VEHICLE.mainEngine.mixtureRatio);
+        const initialFuel = totalPropellant * fuelFraction;
+        const initialOxidizer = totalPropellant * (1 - fuelFraction);
+        
+        // Ground clearance with legs
+        const groundClearance = VEHICLE.legLength + VEHICLE.footRadius;
+        
+        // ============================================
+        // STATE
+        // ============================================
+        let state = {
+            position: new THREE.Vector3(0, groundClearance, 0),
+            velocity: new THREE.Vector3(0, 0, 0),
+            quaternion: new THREE.Quaternion(),
+            angularVelocity: new THREE.Vector3(0, 0, 0),
+            
+            fuel: initialFuel,
+            oxidizer: initialOxidizer,
+            
+            throttle: 0,
+            
+            rcsState: {
+                fl: false, fr: false,
+                rl: false, rr: false
+            },
+            
+            cantAngle: 0,
+            azimuthAngle: 0,
+            
+            sasEnabled: false,
+            
+            onGround: true,
+            crashed: false
+        };
+        
+        let keys = {};
+        
+        // ============================================
+        // THREE.JS SETUP
+        // ============================================
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x1a1a2e);
+        scene.fog = new THREE.Fog(0x1a1a2e, 50, 200);
+        
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(8, 4, 8);
+        camera.lookAt(0, 1, 0);
+        
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+        
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0x404060, 0.5);
+        scene.add(ambientLight);
+        
+        const sunLight = new THREE.DirectionalLight(0xffffff, 1.0);
+        sunLight.position.set(50, 100, 50);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.width = 2048;
+        sunLight.shadow.mapSize.height = 2048;
+        sunLight.shadow.camera.near = 0.5;
+        sunLight.shadow.camera.far = 500;
+        sunLight.shadow.camera.left = -50;
+        sunLight.shadow.camera.right = 50;
+        sunLight.shadow.camera.top = 50;
+        sunLight.shadow.camera.bottom = -50;
+        scene.add(sunLight);
+        
+        // Ground
+        const groundGeometry = new THREE.PlaneGeometry(200, 200, 50, 50);
+        const groundMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0x2a2a3a,
+            roughness: 0.9,
+            metalness: 0.1
+        });
+        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        scene.add(ground);
+        
+        // Grid
+        const gridHelper = new THREE.GridHelper(200, 100, 0x50c8ff, 0x303050);
+        gridHelper.position.y = 0.01;
+        scene.add(gridHelper);
+        
+        // Landing pad
+        const padGeometry = new THREE.CylinderGeometry(3, 3, 0.1, 32);
+        const padMaterial = new THREE.MeshStandardMaterial({ color: 0x404060 });
+        const landingPad = new THREE.Mesh(padGeometry, padMaterial);
+        landingPad.position.y = 0.05;
+        landingPad.receiveShadow = true;
+        scene.add(landingPad);
+        
+        const ringGeometry = new THREE.RingGeometry(2.5, 2.7, 32);
+        const ringMaterial = new THREE.MeshBasicMaterial({ color: 0x50c8ff, side: THREE.DoubleSide });
+        const padRing = new THREE.Mesh(ringGeometry, ringMaterial);
+        padRing.rotation.x = -Math.PI / 2;
+        padRing.position.y = 0.11;
+        scene.add(padRing);
+        
+        // ============================================
+        // HOPPER VEHICLE
+        // ============================================
+        const hopperGroup = new THREE.Group();
+        
+        // Materials
+        const plateMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0xe0e0e0,
+            roughness: 0.3,
+            metalness: 0.7
+        });
+        
+        const tankMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0xc0c0c0,
+            roughness: 0.4,
+            metalness: 0.6
+        });
+        
+        const accentMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0xff6b35, 
+            roughness: 0.5 
+        });
+        
+        const legMaterial = new THREE.MeshStandardMaterial({
+            color: 0x606060,
+            roughness: 0.5,
+            metalness: 0.7
+        });
+        
+        // Bottom plate
+        const bottomPlateGeometry = new THREE.BoxGeometry(VEHICLE.width, VEHICLE.plateThickness, VEHICLE.length);
+        const bottomPlate = new THREE.Mesh(bottomPlateGeometry, plateMaterial);
+        bottomPlate.position.y = VEHICLE.plateThickness / 2;
+        bottomPlate.castShadow = true;
+        hopperGroup.add(bottomPlate);
+        
+        // Top plate
+        const topPlate = new THREE.Mesh(bottomPlateGeometry, plateMaterial);
+        topPlate.position.y = VEHICLE.height - VEHICLE.plateThickness / 2;
+        topPlate.castShadow = true;
+        hopperGroup.add(topPlate);
+        
+        // Orange accent on top
+        const accentGeometry = new THREE.BoxGeometry(VEHICLE.width + 0.02, 0.02, VEHICLE.length + 0.02);
+        const accent = new THREE.Mesh(accentGeometry, accentMaterial);
+        accent.position.y = VEHICLE.height;
+        hopperGroup.add(accent);
+        
+        // Four spherical tanks (0.5m diameter)
+        const tankGeometry = new THREE.SphereGeometry(VEHICLE.tankRadius, 24, 16);
+        const tankPositions = [
+            { x: -VEHICLE.width/4, z: -VEHICLE.length/4 },
+            { x: VEHICLE.width/4, z: -VEHICLE.length/4 },
+            { x: -VEHICLE.width/4, z: VEHICLE.length/4 },
+            { x: VEHICLE.width/4, z: VEHICLE.length/4 }
+        ];
+        
+        tankPositions.forEach((pos, i) => {
+            const tank = new THREE.Mesh(tankGeometry, tankMaterial);
+            tank.position.set(pos.x, VEHICLE.height / 2, pos.z);
+            tank.castShadow = true;
+            hopperGroup.add(tank);
+            
+            const bandGeometry = new THREE.TorusGeometry(VEHICLE.tankRadius + 0.01, 0.015, 8, 24);
+            const band = new THREE.Mesh(bandGeometry, accentMaterial);
+            band.position.copy(tank.position);
+            band.rotation.x = Math.PI / 2;
+            hopperGroup.add(band);
+        });
+        
+        // Vertical struts at corners
+        const strutGeometry = new THREE.CylinderGeometry(0.02, 0.02, VEHICLE.height - VEHICLE.plateThickness, 8);
+        const strutMaterial = new THREE.MeshStandardMaterial({ color: 0x404040, metalness: 0.8 });
+        const cornerPositions = [
+            { x: -VEHICLE.width/2 + 0.05, z: -VEHICLE.length/2 + 0.05 },
+            { x: VEHICLE.width/2 - 0.05, z: -VEHICLE.length/2 + 0.05 },
+            { x: -VEHICLE.width/2 + 0.05, z: VEHICLE.length/2 - 0.05 },
+            { x: VEHICLE.width/2 - 0.05, z: VEHICLE.length/2 - 0.05 }
+        ];
+        
+        cornerPositions.forEach(pos => {
+            const strut = new THREE.Mesh(strutGeometry, strutMaterial);
+            strut.position.set(pos.x, VEHICLE.height / 2, pos.z);
+            hopperGroup.add(strut);
+        });
+        
+        // Landing legs - now angling INWARD from outside corners toward feet under the vehicle
+        const legGeometry = new THREE.CylinderGeometry(0.015, 0.02, VEHICLE.legLength * 1.2, 8);
+        const footGeometry = new THREE.SphereGeometry(VEHICLE.footRadius, 8, 6);
+        
+        // Foot positions (under the vehicle, spread out)
+        const footPositions = [
+            { x: -VEHICLE.width/2 - 0.1, z: -VEHICLE.length/2 - 0.1 },
+            { x: VEHICLE.width/2 + 0.1, z: -VEHICLE.length/2 - 0.1 },
+            { x: -VEHICLE.width/2 - 0.1, z: VEHICLE.length/2 + 0.1 },
+            { x: VEHICLE.width/2 + 0.1, z: VEHICLE.length/2 + 0.1 }
+        ];
+        
+        // Leg attachment points (on the bottom plate corners)
+        const legAttachments = [
+            { x: -VEHICLE.width/2 + 0.08, z: -VEHICLE.length/2 + 0.08 },
+            { x: VEHICLE.width/2 - 0.08, z: -VEHICLE.length/2 + 0.08 },
+            { x: -VEHICLE.width/2 + 0.08, z: VEHICLE.length/2 - 0.08 },
+            { x: VEHICLE.width/2 - 0.08, z: VEHICLE.length/2 - 0.08 }
+        ];
+        
+        footPositions.forEach((footPos, i) => {
+            const attach = legAttachments[i];
+            
+            // Calculate leg direction and length
+            const dx = footPos.x - attach.x;
+            const dz = footPos.z - attach.z;
+            const dy = -VEHICLE.legLength;
+            const actualLength = Math.sqrt(dx*dx + dy*dy + dz*dz);
+            
+            // Create leg with correct length
+            const legGeo = new THREE.CylinderGeometry(0.015, 0.02, actualLength, 8);
+            const leg = new THREE.Mesh(legGeo, legMaterial);
+            
+            // Position at midpoint
+            leg.position.set(
+                (attach.x + footPos.x) / 2,
+                -VEHICLE.legLength / 2,
+                (attach.z + footPos.z) / 2
+            );
+            
+            // Calculate rotation to align leg
+            const legDir = new THREE.Vector3(dx, dy, dz).normalize();
+            const up = new THREE.Vector3(0, 1, 0);
+            const quat = new THREE.Quaternion().setFromUnitVectors(up, legDir);
+            leg.quaternion.copy(quat);
+            
+            leg.castShadow = true;
+            hopperGroup.add(leg);
+            
+            // Foot
+            const foot = new THREE.Mesh(footGeometry, legMaterial);
+            foot.position.set(footPos.x, -VEHICLE.legLength, footPos.z);
+            foot.castShadow = true;
+            hopperGroup.add(foot);
+        });
+        
+        // Engine bells
+        const bellMaterial = new THREE.MeshStandardMaterial({ color: 0x303030, roughness: 0.4, metalness: 0.8 });
+        
+        const mainBellGeometry = new THREE.CylinderGeometry(0.12, 0.18, 0.15, 16);
+        const mainBell = new THREE.Mesh(mainBellGeometry, bellMaterial);
+        mainBell.position.y = -0.075;
+        hopperGroup.add(mainBell);
+        
+        // RCS at corners
+        const rcsBellGeometry = new THREE.CylinderGeometry(0.04, 0.06, 0.08, 8);
+        const rcsCornerPositions = [
+            { x: -VEHICLE.width/2 + 0.1, z: -VEHICLE.length/2 + 0.1, id: 'fl' },
+            { x: VEHICLE.width/2 - 0.1, z: -VEHICLE.length/2 + 0.1, id: 'fr' },
+            { x: -VEHICLE.width/2 + 0.1, z: VEHICLE.length/2 - 0.1, id: 'rl' },
+            { x: VEHICLE.width/2 - 0.1, z: VEHICLE.length/2 - 0.1, id: 'rr' }
+        ];
+        
+        const rcsBells = {};
+        rcsCornerPositions.forEach(pos => {
+            const bell = new THREE.Mesh(rcsBellGeometry, bellMaterial.clone());
+            bell.position.set(pos.x, -0.04, pos.z);
+            rcsBells[pos.id] = bell;
+            hopperGroup.add(bell);
+        });
+        
+        // Flames
+        const mainFlameGeometry = new THREE.ConeGeometry(0.15, 1.0, 16);
+        const flameMaterial = new THREE.MeshBasicMaterial({ 
+            color: 0xff8040,
+            transparent: true,
+            opacity: 0.9
+        });
+        const mainFlame = new THREE.Mesh(mainFlameGeometry, flameMaterial);
+        mainFlame.position.y = -0.6;
+        mainFlame.rotation.x = Math.PI;
+        mainFlame.visible = false;
+        hopperGroup.add(mainFlame);
+        
+        const rcsFlameGeometry = new THREE.ConeGeometry(0.04, 0.3, 8);
+        const rcsFlames = {};
+        rcsCornerPositions.forEach(pos => {
+            const flame = new THREE.Mesh(rcsFlameGeometry, new THREE.MeshBasicMaterial({
+                color: 0x80ff80,
+                transparent: true,
+                opacity: 0.8
+            }));
+            flame.position.set(pos.x, -0.2, pos.z);
+            flame.rotation.x = Math.PI;
+            flame.visible = false;
+            rcsFlames[pos.id] = flame;
+            hopperGroup.add(flame);
+        });
+        
+        scene.add(hopperGroup);
+        
+        // ============================================
+        // PHYSICS
+        // ============================================
+        function getTotalMass() {
+            return VEHICLE.dryMass + state.fuel + state.oxidizer;
+        }
+        
+        function getInertia() {
+            const mass = getTotalMass();
+            const w = VEHICLE.width;
+            const h = VEHICLE.height;
+            const l = VEHICLE.length;
+            
+            return {
+                x: (1/12) * mass * (h*h + l*l),
+                y: (1/12) * mass * (w*w + l*l),
+                z: (1/12) * mass * (w*w + h*h)
+            };
+        }
+        
+        // RCS thrust vector with SYMMETRIC mirrored configuration
+        // Cant: negative = inward (all point to center), positive = outward (all point away)
+        // Rotation: MIRRORED per corner so forces balance
+        function getRCSThrustVector(cornerIndex) {
+            const cant = state.cantAngle * Math.PI / 180;
+            const azimuth = state.azimuthAngle * Math.PI / 180;
+            
+            // Each corner's outward direction (from center toward corner)
+            // FL: (-1, -1), FR: (+1, -1), RL: (-1, +1), RR: (+1, +1)
+            const cornerSigns = [
+                { sx: -1, sz: -1 },  // FL
+                { sx:  1, sz: -1 },  // FR
+                { sx: -1, sz:  1 },  // RL
+                { sx:  1, sz:  1 }   // RR
+            ];
+            
+            // Mirror multipliers for azimuth rotation
+            // FL and RR rotate one way, FR and RL rotate the other way
+            // This creates balanced tangential forces
+            const azimuthMirror = [1, -1, -1, 1];  // FL, FR, RL, RR
+            
+            const signs = cornerSigns[cornerIndex];
+            const azMirror = azimuthMirror[cornerIndex];
+            
+            // Outward direction for this corner (normalized)
+            const outX = signs.sx / Math.sqrt(2);
+            const outZ = signs.sz / Math.sqrt(2);
+            
+            // Tangent direction (perpendicular, CCW when viewed from above)
+            const tanX = -outZ;
+            const tanZ = outX;
+            
+            // Apply mirrored azimuth rotation
+            const mirroredAzimuth = azimuth * azMirror;
+            
+            // Combine radial and tangent based on mirrored azimuth
+            const dirX = outX * Math.cos(mirroredAzimuth) + tanX * Math.sin(mirroredAzimuth);
+            const dirZ = outZ * Math.cos(mirroredAzimuth) + tanZ * Math.sin(mirroredAzimuth);
+            
+            // Cant angle determines tilt from vertical
+            const horizontalMag = Math.sin(Math.abs(cant));
+            const verticalMag = Math.cos(Math.abs(cant));
+            
+            // Negative cant = inward, positive = outward
+            const cantSign = cant >= 0 ? 1 : -1;
+            
+            // Thrust vector (force on vehicle)
+            return new THREE.Vector3(
+                -dirX * horizontalMag * cantSign,
+                verticalMag,
+                -dirZ * horizontalMag * cantSign
+            ).normalize();
+        }
+        
+        function updateSAS(dt) {
+            if (!state.sasEnabled || state.fuel <= 0) return;
+            
+            const invQuat = state.quaternion.clone().invert();
+            const angVelBody = state.angularVelocity.clone().applyQuaternion(invQuat);
+            
+            const euler = new THREE.Euler().setFromQuaternion(state.quaternion, 'YXZ');
+            
+            const Kp = 2.0;
+            const Kd = 1.5;
+            
+            const pitchError = euler.x;  // Positive pitch = nose up, need to fire front to correct
+            const pitchRateError = angVelBody.x;
+            const pitchCommand = Kp * pitchError + Kd * pitchRateError;
+            
+            const rollError = euler.z;  // Positive roll = right side down, need to fire right to correct
+            const rollRateError = angVelBody.z;
+            const rollCommand = Kp * rollError + Kd * rollRateError;
+            
+            const yawRateError = angVelBody.y;
+            const yawCommand = Kd * yawRateError;
+            
+            const threshold = 0.05;
+            
+            // Pitch control: positive error = pitched up = fire rear to pitch down
+            if (pitchCommand > threshold) {
+                state.rcsState.rl = true;
+                state.rcsState.rr = true;
+            } else if (pitchCommand < -threshold) {
+                state.rcsState.fl = true;
+                state.rcsState.fr = true;
+            }
+            
+            // Roll control: positive error = rolled right = fire left side to roll left
+            if (rollCommand > threshold) {
+                state.rcsState.fl = true;
+                state.rcsState.rl = true;
+            } else if (rollCommand < -threshold) {
+                state.rcsState.fr = true;
+                state.rcsState.rr = true;
+            }
+            
+            // Yaw control (diagonal pairs) - only effective with cant angle
+            if (Math.abs(state.cantAngle) > 0) {
+                if (yawCommand > threshold) {
+                    state.rcsState.fr = true;
+                    state.rcsState.rl = true;
+                } else if (yawCommand < -threshold) {
+                    state.rcsState.fl = true;
+                    state.rcsState.rr = true;
+                }
+            }
+        }
+        
+        function updatePhysics(dt) {
+            if (state.crashed) return;
+            
+            const mass = getTotalMass();
+            const inertia = getInertia();
+            
+            let totalForce = new THREE.Vector3(0, 0, 0);
+            let totalTorque = new THREE.Vector3(0, 0, 0);
+            
+            // Gravity
+            totalForce.add(new THREE.Vector3(0, -PHYSICS.gravity * mass, 0));
+            
+            // Main engine
+            if (state.throttle > 0 && state.fuel > 0 && state.oxidizer > 0) {
+                const thrust = VEHICLE.mainEngine.minThrust + 
+                    (VEHICLE.mainEngine.maxThrust - VEHICLE.mainEngine.minThrust) * state.throttle;
+                
+                const thrustBody = new THREE.Vector3(0, thrust, 0);
+                const thrustWorld = thrustBody.clone().applyQuaternion(state.quaternion);
+                totalForce.add(thrustWorld);
+                
+                const massFlow = thrust / (VEHICLE.mainEngine.isp * PHYSICS.g0);
+                const fuelFlow = massFlow * fuelFraction;
+                const oxFlow = massFlow * (1 - fuelFraction);
+                
+                state.fuel = Math.max(0, state.fuel - fuelFlow * dt);
+                state.oxidizer = Math.max(0, state.oxidizer - oxFlow * dt);
+            }
+            
+            // RCS
+            const rcsCorners = ['fl', 'fr', 'rl', 'rr'];
+            const rcsPositionsPhysics = [
+                new THREE.Vector3(-VEHICLE.width/2 + 0.1, 0, -VEHICLE.length/2 + 0.1),
+                new THREE.Vector3(VEHICLE.width/2 - 0.1, 0, -VEHICLE.length/2 + 0.1),
+                new THREE.Vector3(-VEHICLE.width/2 + 0.1, 0, VEHICLE.length/2 - 0.1),
+                new THREE.Vector3(VEHICLE.width/2 - 0.1, 0, VEHICLE.length/2 - 0.1)
+            ];
+            
+            rcsCorners.forEach((corner, i) => {
+                if (state.rcsState[corner] && state.fuel > 0) {
+                    const thrustDir = getRCSThrustVector(i);
+                    const thrustMag = VEHICLE.rcsEngine.thrust;
+                    
+                    const thrustBody = thrustDir.clone().multiplyScalar(thrustMag);
+                    const thrustWorld = thrustBody.clone().applyQuaternion(state.quaternion);
+                    totalForce.add(thrustWorld);
+                    
+                    const torque = rcsPositionsPhysics[i].clone().cross(thrustBody);
+                    totalTorque.add(torque);
+                    
+                    const massFlow = thrustMag / (VEHICLE.rcsEngine.isp * PHYSICS.g0);
+                    state.fuel = Math.max(0, state.fuel - massFlow * dt);
+                }
+            });
+            
+            // Linear motion
+            const accel = totalForce.clone().divideScalar(mass);
+            state.velocity.add(accel.multiplyScalar(dt));
+            
+            // Angular motion
+            const angAccel = new THREE.Vector3(
+                totalTorque.x / inertia.x,
+                totalTorque.y / inertia.y,
+                totalTorque.z / inertia.z
+            );
+            
+            state.angularVelocity.multiplyScalar(0.998);
+            state.angularVelocity.add(angAccel.multiplyScalar(dt));
+            
+            state.position.add(state.velocity.clone().multiplyScalar(dt));
+            
+            const angVelMag = state.angularVelocity.length();
+            if (angVelMag > 0.0001) {
+                const angVelWorld = state.angularVelocity.clone().applyQuaternion(state.quaternion);
+                const axis = angVelWorld.normalize();
+                const deltaQuat = new THREE.Quaternion().setFromAxisAngle(axis, angVelMag * dt);
+                state.quaternion.premultiply(deltaQuat);
+                state.quaternion.normalize();
+            }
+            
+            // Ground collision
+            if (state.position.y <= groundClearance) {
+                state.position.y = groundClearance;
+                
+                const impactVel = Math.abs(state.velocity.y);
+                const euler = new THREE.Euler().setFromQuaternion(state.quaternion, 'YXZ');
+                const pitch = Math.abs(euler.x);
+                const roll = Math.abs(euler.z);
+                
+                if (impactVel > 5 || pitch > Math.PI/4 || roll > Math.PI/4) {
+                    state.crashed = true;
+                    showStatus("CRASH!", false);
+                } else {
+                    state.velocity.set(0, 0, 0);
+                    state.angularVelocity.set(0, 0, 0);
+                    state.onGround = true;
+                }
+            } else {
+                state.onGround = false;
+            }
+        }
+        
+        // ============================================
+        // CONTROLS
+        // ============================================
+        function updateControls(dt) {
+            if (state.crashed) return;
+            
+            const throttleRate = 0.5;
+            if (keys['ShiftLeft'] || keys['ShiftRight']) {
+                state.throttle = Math.min(1, state.throttle + throttleRate * dt);
+            }
+            if (keys['ControlLeft'] || keys['ControlRight']) {
+                state.throttle = Math.max(0, state.throttle - throttleRate * dt);
+            }
+            
+            state.rcsState = { fl: false, fr: false, rl: false, rr: false };
+            
+            let manualControl = false;
+            
+            // Pitch: W = nose down, S = nose up
+            if (keys['KeyW']) {
+                state.rcsState.rl = true;
+                state.rcsState.rr = true;
+                manualControl = true;
+            }
+            if (keys['KeyS']) {
+                state.rcsState.fl = true;
+                state.rcsState.fr = true;
+                manualControl = true;
+            }
+            
+            // Roll: A = roll left (fire right side), D = roll right (fire left side)
+            if (keys['KeyA']) {
+                state.rcsState.fr = true;
+                state.rcsState.rr = true;
+                manualControl = true;
+            }
+            if (keys['KeyD']) {
+                state.rcsState.fl = true;
+                state.rcsState.rl = true;
+                manualControl = true;
+            }
+            
+            // Yaw: Q = yaw left, E = yaw right (diagonal pairs for torque)
+            if (keys['KeyQ']) {
+                state.rcsState.fr = true;
+                state.rcsState.rl = true;
+                manualControl = true;
+            }
+            if (keys['KeyE']) {
+                state.rcsState.fl = true;
+                state.rcsState.rr = true;
+                manualControl = true;
+            }
+            
+            if (state.sasEnabled && !manualControl) {
+                updateSAS(dt);
+            }
+        }
+        
+        // ============================================
+        // RENDERING
+        // ============================================
+        function updateVisuals() {
+            hopperGroup.position.copy(state.position);
+            hopperGroup.position.y += VEHICLE.height / 2;
+            hopperGroup.quaternion.copy(state.quaternion);
+            
+            if (state.throttle > 0 && state.fuel > 0 && state.oxidizer > 0) {
+                mainFlame.visible = true;
+                const flameScale = 0.5 + state.throttle * 1.5;
+                mainFlame.scale.set(flameScale, flameScale, flameScale);
+                mainFlame.material.opacity = 0.6 + Math.random() * 0.3;
+            } else {
+                mainFlame.visible = false;
+            }
+            
+            ['fl', 'fr', 'rl', 'rr'].forEach((corner, i) => {
+                rcsFlames[corner].visible = state.rcsState[corner] && state.fuel > 0;
+                if (rcsFlames[corner].visible) {
+                    rcsFlames[corner].material.opacity = 0.5 + Math.random() * 0.3;
+                    
+                    const thrustDir = getRCSThrustVector(i);
+                    const exhaustDir = thrustDir.clone().negate();
+                    const defaultDir = new THREE.Vector3(0, -1, 0);
+                    const quat = new THREE.Quaternion().setFromUnitVectors(defaultDir, exhaustDir);
+                    rcsFlames[corner].quaternion.copy(quat);
+                }
+            });
+        }
+        
+        function updateHUD() {
+            document.getElementById('altitude').textContent = (state.position.y - groundClearance).toFixed(2);
+            
+            const vsEl = document.getElementById('vertical-speed');
+            vsEl.textContent = state.velocity.y.toFixed(2);
+            vsEl.className = 'data-value ' + (state.velocity.y > 0.5 ? 'value-positive' : state.velocity.y < -2 ? 'value-negative' : '');
+            
+            const hSpeed = Math.sqrt(state.velocity.x ** 2 + state.velocity.z ** 2);
+            document.getElementById('horizontal-speed').textContent = hSpeed.toFixed(2);
+            
+            document.getElementById('mass').textContent = getTotalMass().toFixed(1);
+            
+            const throttlePercent = Math.round(state.throttle * 100);
+            document.getElementById('throttle-percent').textContent = throttlePercent;
+            document.getElementById('throttle-bar').style.width = throttlePercent + '%';
+            
+            const totalPropNow = state.fuel + state.oxidizer;
+            const fuelPercent = (totalPropNow / totalPropellant) * 100;
+            document.getElementById('fuel-bar').style.width = fuelPercent + '%';
+            document.getElementById('fuel-mass').textContent = state.fuel.toFixed(2);
+            document.getElementById('ox-mass').textContent = state.oxidizer.toFixed(2);
+            
+            const euler = new THREE.Euler().setFromQuaternion(state.quaternion, 'YXZ');
+            const pitchDeg = (euler.x * 180 / Math.PI).toFixed(1);
+            const rollDeg = (euler.z * 180 / Math.PI).toFixed(1);
+            const yawDeg = (euler.y * 180 / Math.PI).toFixed(1);
+            
+            document.getElementById('pitch-value').textContent = pitchDeg + '°';
+            document.getElementById('roll-value').textContent = rollDeg + '°';
+            document.getElementById('yaw-value').textContent = yawDeg + '°';
+            
+            const attitude = document.getElementById('attitude-aircraft');
+            attitude.style.transform = `translate(-50%, -50%) rotate(${-euler.z * 180 / Math.PI}deg)`;
+            
+            document.getElementById('rcs-fl').className = 'rcs-thruster' + (state.rcsState.fl ? ' firing' : '');
+            document.getElementById('rcs-fr').className = 'rcs-thruster' + (state.rcsState.fr ? ' firing' : '');
+            document.getElementById('rcs-rl').className = 'rcs-thruster' + (state.rcsState.rl ? ' firing' : '');
+            document.getElementById('rcs-rr').className = 'rcs-thruster' + (state.rcsState.rr ? ' firing' : '');
+            document.getElementById('main-indicator').className = 'rcs-main' + (state.throttle > 0 && state.fuel > 0 ? ' firing' : '');
+            
+            const sasStatus = document.getElementById('sas-status');
+            sasStatus.textContent = state.sasEnabled ? 'ON' : 'OFF';
+            sasStatus.className = 'sas-status ' + (state.sasEnabled ? 'active' : 'inactive');
+        }
+        
+        function updateThrusterDiagram() {
+            const cant = state.cantAngle;
+            const azimuth = state.azimuthAngle;
+            
+            // Corners with their mirrored azimuth multipliers
+            const corners = [
+                { id: 'arrow-fl', sx: -1, sz: -1, azMirror: 1 },
+                { id: 'arrow-fr', sx:  1, sz: -1, azMirror: -1 },
+                { id: 'arrow-rl', sx: -1, sz:  1, azMirror: -1 },
+                { id: 'arrow-rr', sx:  1, sz:  1, azMirror: 1 }
+            ];
+            
+            corners.forEach(corner => {
+                const el = document.getElementById(corner.id);
+                
+                // Calculate direction with mirrored azimuth
+                const outX = corner.sx / Math.sqrt(2);
+                const outZ = corner.sz / Math.sqrt(2);
+                const tanX = -outZ;
+                const tanZ = outX;
+                
+                const azRad = azimuth * Math.PI / 180 * corner.azMirror;
+                const dirX = outX * Math.cos(azRad) + tanX * Math.sin(azRad);
+                const dirZ = outZ * Math.cos(azRad) + tanZ * Math.sin(azRad);
+                
+                // Thrust is opposite to cant direction
+                const cantSign = cant >= 0 ? 1 : -1;
+                const thrustX = -dirX * cantSign;
+                const thrustZ = -dirZ * cantSign;
+                
+                // Convert to screen angle
+                const screenAngle = Math.atan2(thrustX, -thrustZ) * 180 / Math.PI;
+                
+                // Arrow length based on cant magnitude
+                const arrowLength = 5 + Math.abs(cant) / 45 * 15;
+                
+                el.style.height = arrowLength + 'px';
+                el.style.transform = `rotate(${screenAngle}deg)`;
+                el.style.opacity = Math.abs(cant) > 1 ? 1 : 0.3;
+            });
+        }
+        
+        // ============================================
+        // UTILITIES
+        // ============================================
+        function showStatus(message, isInfo = false) {
+            const el = document.getElementById('status-message');
+            el.textContent = message;
+            el.className = isInfo ? 'visible info' : 'visible';
+            el.classList.add('visible');
+            
+            if (isInfo) {
+                setTimeout(() => el.classList.remove('visible'), 1500);
+            }
+        }
+        
+        function hideStatus() {
+            document.getElementById('status-message').classList.remove('visible');
+        }
+        
+        function resetSimulation() {
+            state = {
+                position: new THREE.Vector3(0, groundClearance, 0),
+                velocity: new THREE.Vector3(0, 0, 0),
+                quaternion: new THREE.Quaternion(),
+                angularVelocity: new THREE.Vector3(0, 0, 0),
+                fuel: initialFuel,
+                oxidizer: initialOxidizer,
+                throttle: 0,
+                rcsState: { fl: false, fr: false, rl: false, rr: false },
+                cantAngle: parseFloat(document.getElementById('cant-slider').value),
+                azimuthAngle: parseFloat(document.getElementById('azimuth-slider').value),
+                sasEnabled: false,
+                onGround: true,
+                crashed: false
+            };
+            hideStatus();
+            updateThrusterDiagram();
+        }
+        
+        // ============================================
+        // EVENT HANDLERS
+        // ============================================
+        document.addEventListener('keydown', (e) => {
+            if (keys[e.code]) return;
+            keys[e.code] = true;
+            
+            if (e.code === 'KeyR') resetSimulation();
+            if (e.code === 'KeyT') {
+                state.sasEnabled = !state.sasEnabled;
+                showStatus(state.sasEnabled ? 'SAS ON' : 'SAS OFF', true);
+            }
+            
+            if (['Space', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight'].includes(e.code)) {
+                e.preventDefault();
+            }
+        });
+        
+        document.addEventListener('keyup', (e) => {
+            keys[e.code] = false;
+        });
+        
+        document.getElementById('cant-slider').addEventListener('input', (e) => {
+            state.cantAngle = parseFloat(e.target.value);
+            document.getElementById('cant-value').textContent = e.target.value;
+            updateThrusterDiagram();
+        });
+        
+        document.getElementById('azimuth-slider').addEventListener('input', (e) => {
+            state.azimuthAngle = parseFloat(e.target.value);
+            document.getElementById('azimuth-value').textContent = e.target.value;
+            updateThrusterDiagram();
+        });
+        
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        
+        // ============================================
+        // MAIN LOOP
+        // ============================================
+        let lastTime = performance.now();
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const now = performance.now();
+            const dt = Math.min((now - lastTime) / 1000, 0.05) * PHYSICS.timeScale;
+            lastTime = now;
+            
+            updateControls(dt);
+            updatePhysics(dt);
+            updateVisuals();
+            updateHUD();
+            
+            const targetCamPos = new THREE.Vector3(
+                state.position.x + 8,
+                Math.max(4, state.position.y + 3),
+                state.position.z + 8
+            );
+            camera.position.lerp(targetCamPos, 0.02);
+            camera.lookAt(state.position.x, state.position.y + 1, state.position.z);
+            
+            renderer.render(scene, camera);
+        }
+        
+        // Initialize
+        updateThrusterDiagram();
+        animate();
+    </script>
+</body>
+</html>
