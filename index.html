@@ -293,6 +293,26 @@
             box-shadow: 0 0 15px #ff8040;
         }
         
+        .leg-indicator {
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(100, 100, 100, 0.5);
+            border-radius: 50%;
+            transition: all 0.1s;
+        }
+        
+        .leg-indicator.contact {
+            background: #50ff90;
+            border-color: #50ff90;
+            box-shadow: 0 0 8px #50ff90;
+        }
+        
+        .leg-indicator.broken {
+            background: #ff4040;
+            border-color: #ff4040;
+            box-shadow: 0 0 8px #ff4040;
+        }
+        
         #controls-help {
             top: 20px;
             left: 50%;
@@ -506,6 +526,18 @@
             <div class="rcs-cell"></div>
             <div class="rcs-cell"><div id="rcs-rr" class="rcs-thruster"></div></div>
         </div>
+        <div class="data-label" style="margin-top: 8px;">LANDING GEAR</div>
+        <div class="rcs-grid">
+            <div class="rcs-cell"><div id="leg-fl" class="leg-indicator"></div></div>
+            <div class="rcs-cell"></div>
+            <div class="rcs-cell"><div id="leg-fr" class="leg-indicator"></div></div>
+            <div class="rcs-cell"></div>
+            <div class="rcs-cell"></div>
+            <div class="rcs-cell"></div>
+            <div class="rcs-cell"><div id="leg-rl" class="leg-indicator"></div></div>
+            <div class="rcs-cell"></div>
+            <div class="rcs-cell"><div id="leg-rr" class="leg-indicator"></div></div>
+        </div>
     </div>
     
     <div id="rcs-panel" class="hud hud-panel">
@@ -604,7 +636,7 @@
             
             rcsEngine: {
                 thrust: 100,        // Configurable
-                isp: 130
+                isp: 160
             }
         };
         
@@ -660,6 +692,14 @@
             },
             
             sasEnabled: false,
+            
+            // Leg collision state
+            legContacts: {
+                fl: false, fr: false, rl: false, rr: false
+            },
+            legBroken: {
+                fl: false, fr: false, rl: false, rr: false
+            },
             
             onGround: true,
             crashed: false
@@ -824,6 +864,10 @@
         const legGeometry = new THREE.CylinderGeometry(0.015, 0.02, VEHICLE.legLength * 1.2, 8);
         const footGeometry = new THREE.SphereGeometry(VEHICLE.footRadius, 8, 6);
         
+        // Store leg and foot meshes for visual updates
+        const legMeshes = [];
+        const footMeshes = [];
+        
         // Foot positions (under the vehicle, spread out)
         const footPositions = [
             { x: -VEHICLE.width/2 - 0.1, z: -VEHICLE.length/2 - 0.1 },
@@ -851,7 +895,7 @@
             
             // Create leg with correct length
             const legGeo = new THREE.CylinderGeometry(0.015, 0.02, actualLength, 8);
-            const leg = new THREE.Mesh(legGeo, legMaterial);
+            const leg = new THREE.Mesh(legGeo, legMaterial.clone());
             
             // Position at midpoint
             leg.position.set(
@@ -868,12 +912,14 @@
             
             leg.castShadow = true;
             hopperGroup.add(leg);
+            legMeshes.push(leg);
             
             // Foot
-            const foot = new THREE.Mesh(footGeometry, legMaterial);
+            const foot = new THREE.Mesh(footGeometry, legMaterial.clone());
             foot.position.set(footPos.x, -VEHICLE.legLength, footPos.z);
             foot.castShadow = true;
             hopperGroup.add(foot);
+            footMeshes.push(foot);
         });
         
         // Engine bells
@@ -1140,22 +1186,183 @@
                 state.quaternion.normalize();
             }
             
-            // Ground collision
-            if (state.position.y <= groundClearance) {
-                state.position.y = groundClearance;
+            // ============================================
+            // PER-LEG COLLISION PHYSICS
+            // ============================================
+            
+            // Foot positions in body frame (relative to vehicle origin at bottom plate center)
+            const footPositionsBody = [
+                new THREE.Vector3(-VEHICLE.width/2 - 0.1, -VEHICLE.legLength, -VEHICLE.length/2 - 0.1), // FL
+                new THREE.Vector3(VEHICLE.width/2 + 0.1, -VEHICLE.legLength, -VEHICLE.length/2 - 0.1),  // FR
+                new THREE.Vector3(-VEHICLE.width/2 - 0.1, -VEHICLE.legLength, VEHICLE.length/2 + 0.1),  // RL
+                new THREE.Vector3(VEHICLE.width/2 + 0.1, -VEHICLE.legLength, VEHICLE.length/2 + 0.1)    // RR
+            ];
+            
+            const legNames = ['fl', 'fr', 'rl', 'rr'];
+            
+            // Transform foot positions to world frame
+            const footPositionsWorld = footPositionsBody.map(footBody => {
+                const footWorld = footBody.clone().applyQuaternion(state.quaternion);
+                footWorld.add(state.position);
+                return footWorld;
+            });
+            
+            // Check each leg for ground contact
+            let anyContact = false;
+            let contactCount = 0;
+            const contactPoints = [];
+            const contactLegs = [];
+            
+            state.legContacts = { fl: false, fr: false, rl: false, rr: false };
+            
+            footPositionsWorld.forEach((footPos, i) => {
+                const legName = legNames[i];
                 
-                const impactVel = Math.abs(state.velocity.y);
-                const euler = new THREE.Euler().setFromQuaternion(state.quaternion, 'YXZ');
-                const pitch = Math.abs(euler.x);
-                const roll = Math.abs(euler.z);
+                if (footPos.y <= VEHICLE.footRadius && !state.legBroken[legName]) {
+                    state.legContacts[legName] = true;
+                    anyContact = true;
+                    contactCount++;
+                    contactPoints.push(footPos.clone());
+                    contactLegs.push(i);
+                    
+                    // Check for leg breaking (impact too hard on single leg)
+                    // Get velocity at foot point
+                    const footRelative = footPositionsBody[i].clone();
+                    const footVelocity = state.velocity.clone();
+                    // Add rotational velocity contribution: v = ω × r
+                    const rotVelContrib = state.angularVelocity.clone()
+                        .applyQuaternion(state.quaternion)
+                        .cross(footRelative.clone().applyQuaternion(state.quaternion));
+                    footVelocity.add(rotVelContrib);
+                    
+                    const impactSpeed = -footVelocity.y;
+                    if (impactSpeed > 8) {
+                        state.legBroken[legName] = true;
+                    }
+                }
+            });
+            
+            // Check if body hits ground (crash)
+            const bodyBottomWorld = new THREE.Vector3(0, 0, 0)
+                .applyQuaternion(state.quaternion)
+                .add(state.position);
+            
+            // Check corners of bottom plate
+            const bodyCorners = [
+                new THREE.Vector3(-VEHICLE.width/2, 0, -VEHICLE.length/2),
+                new THREE.Vector3(VEHICLE.width/2, 0, -VEHICLE.length/2),
+                new THREE.Vector3(-VEHICLE.width/2, 0, VEHICLE.length/2),
+                new THREE.Vector3(VEHICLE.width/2, 0, VEHICLE.length/2)
+            ];
+            
+            let bodyCrash = false;
+            bodyCorners.forEach(corner => {
+                const cornerWorld = corner.clone().applyQuaternion(state.quaternion).add(state.position);
+                if (cornerWorld.y < 0.02) {
+                    bodyCrash = true;
+                }
+            });
+            
+            // Check if all legs broken
+            const allLegsBroken = Object.values(state.legBroken).every(b => b);
+            
+            if (bodyCrash || allLegsBroken) {
+                state.crashed = true;
+                showStatus("CRASH!", false);
+                state.velocity.set(0, 0, 0);
+                state.angularVelocity.set(0, 0, 0);
+            }
+            
+            // Apply collision response if legs are in contact
+            if (anyContact && !state.crashed) {
+                const restitution = 0.2;  // Bounciness
+                const friction = 0.7;      // Ground friction
                 
-                if (impactVel > 5 || pitch > Math.PI/4 || roll > Math.PI/4) {
-                    state.crashed = true;
-                    showStatus("CRASH!", false);
-                } else {
-                    state.velocity.set(0, 0, 0);
-                    state.angularVelocity.set(0, 0, 0);
+                if (contactCount >= 3) {
+                    // Stable contact - vehicle can rest
+                    // Push position up if below ground
+                    const lowestFoot = Math.min(...footPositionsWorld.map(f => f.y));
+                    if (lowestFoot < VEHICLE.footRadius) {
+                        state.position.y += (VEHICLE.footRadius - lowestFoot);
+                    }
+                    
+                    // Apply ground reaction
+                    if (state.velocity.y < 0) {
+                        // Bounce
+                        state.velocity.y *= -restitution;
+                        if (Math.abs(state.velocity.y) < 0.1) {
+                            state.velocity.y = 0;
+                        }
+                    }
+                    
+                    // Friction on horizontal velocity
+                    state.velocity.x *= (1 - friction * dt * 10);
+                    state.velocity.z *= (1 - friction * dt * 10);
+                    
+                    // Damp angular velocity when grounded
+                    state.angularVelocity.multiplyScalar(0.95);
+                    
                     state.onGround = true;
+                    
+                } else if (contactCount > 0) {
+                    // Partial contact - tip over physics
+                    // Find the pivot axis (line between contact points, or single point)
+                    
+                    let pivotPoint;
+                    if (contactCount === 1) {
+                        pivotPoint = contactPoints[0].clone();
+                    } else {
+                        // Average of contact points
+                        pivotPoint = new THREE.Vector3();
+                        contactPoints.forEach(p => pivotPoint.add(p));
+                        pivotPoint.divideScalar(contactPoints.length);
+                    }
+                    
+                    // Push contacting feet out of ground
+                    contactPoints.forEach((footPos, idx) => {
+                        if (footPos.y < VEHICLE.footRadius) {
+                            const correction = VEHICLE.footRadius - footPos.y;
+                            state.position.y += correction * 0.5;
+                        }
+                    });
+                    
+                    // Apply constraint - contacting feet can't go through ground
+                    // This creates a pivot effect
+                    contactPoints.forEach((footPos, idx) => {
+                        const legIdx = contactLegs[idx];
+                        const footBody = footPositionsBody[legIdx];
+                        
+                        // Get velocity at this foot
+                        const footVel = state.velocity.clone();
+                        const r = footBody.clone().applyQuaternion(state.quaternion);
+                        const angVelWorld = state.angularVelocity.clone().applyQuaternion(state.quaternion);
+                        footVel.add(angVelWorld.clone().cross(r));
+                        
+                        // If foot trying to go through ground, apply impulse
+                        if (footVel.y < 0 && footPos.y <= VEHICLE.footRadius) {
+                            // Calculate impulse to stop downward motion at this point
+                            const impulseDir = new THREE.Vector3(0, 1, 0);
+                            
+                            // Apply linear impulse
+                            const linearImpulse = -footVel.y * 0.5;
+                            state.velocity.y += linearImpulse;
+                            
+                            // Apply angular impulse (creates rotation around contact)
+                            const torqueImpulse = r.clone().cross(impulseDir.clone().multiplyScalar(linearImpulse * mass * 0.1));
+                            const invQuat = state.quaternion.clone().invert();
+                            torqueImpulse.applyQuaternion(invQuat);
+                            
+                            state.angularVelocity.x += torqueImpulse.x / inertia.x;
+                            state.angularVelocity.y += torqueImpulse.y / inertia.y;
+                            state.angularVelocity.z += torqueImpulse.z / inertia.z;
+                            
+                            // Friction
+                            state.velocity.x *= 0.98;
+                            state.velocity.z *= 0.98;
+                        }
+                    });
+                    
+                    state.onGround = false;
                 }
             } else {
                 state.onGround = false;
@@ -1248,10 +1455,33 @@
         // ============================================
         // RENDERING
         // ============================================
+        
+        function updateLegVisuals() {
+            const legNames = ['fl', 'fr', 'rl', 'rr'];
+            legNames.forEach((name, i) => {
+                if (state.legBroken[name]) {
+                    // Broken leg - red color
+                    legMeshes[i].material.color.setHex(0xff3030);
+                    footMeshes[i].material.color.setHex(0xff3030);
+                } else if (state.legContacts[name]) {
+                    // In contact - green color
+                    legMeshes[i].material.color.setHex(0x30ff30);
+                    footMeshes[i].material.color.setHex(0x30ff30);
+                } else {
+                    // Normal - gray
+                    legMeshes[i].material.color.setHex(0x606060);
+                    footMeshes[i].material.color.setHex(0x606060);
+                }
+            });
+        }
+        
         function updateVisuals() {
             hopperGroup.position.copy(state.position);
             hopperGroup.position.y += VEHICLE.height / 2;
             hopperGroup.quaternion.copy(state.quaternion);
+            
+            // Update leg colors
+            updateLegVisuals();
             
             if (state.throttle > 0 && state.fuel > 0 && state.oxidizer > 0) {
                 mainFlame.visible = true;
@@ -1319,6 +1549,19 @@
             const sasStatus = document.getElementById('sas-status');
             sasStatus.textContent = state.sasEnabled ? 'ON' : 'OFF';
             sasStatus.className = 'sas-status ' + (state.sasEnabled ? 'active' : 'inactive');
+            
+            // Leg indicators
+            const legNames = ['fl', 'fr', 'rl', 'rr'];
+            legNames.forEach(name => {
+                const el = document.getElementById('leg-' + name);
+                if (state.legBroken[name]) {
+                    el.className = 'leg-indicator broken';
+                } else if (state.legContacts[name]) {
+                    el.className = 'leg-indicator contact';
+                } else {
+                    el.className = 'leg-indicator';
+                }
+            });
         }
         
         function updateThrusterDiagram() {
@@ -1396,9 +1639,15 @@
                 cantAngle: parseFloat(document.getElementById('cant-slider').value),
                 azimuthAngle: parseFloat(document.getElementById('azimuth-slider').value),
                 sasEnabled: false,
+                legContacts: { fl: false, fr: false, rl: false, rr: false },
+                legBroken: { fl: false, fr: false, rl: false, rr: false },
                 onGround: true,
                 crashed: false
             };
+            
+            // Reset leg visuals
+            updateLegVisuals();
+            
             hideStatus();
             updateThrusterDiagram();
         }
